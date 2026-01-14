@@ -7,4 +7,6 @@ export default defineConfig({
     vue(),
     vuetify({ autoImport: true }),
   ],
+  base : '/tuto-dessin/',
+
 })
