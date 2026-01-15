@@ -7,6 +7,6 @@ export default defineConfig({
     vue(),
     vuetify({ autoImport: true }),
   ],
-  base : '/tuto-dessin/',
+  base: process.env.DEPLOY_ENV === "GH_PAGES" ? "/tuto-dessin/" : "/",
 
 })
