@@ -1,60 +1,46 @@
 <template>
   <v-app>
-    <v-app-bar color="deep-purple-accent-4" height="100">
-      <template v-slot:image>
-        <v-img
-          :src="logoUrl"
-          gradient="to top right, rgba(103, 58, 183, 0.7), rgba(0, 0, 0, 0.3)"
-          cover
-        ></v-img>
-      </template>
-
-
-
-      <v-spacer />
-
-      <div v-if="profile?.pseudo" class="mr-3 text-body-1 font-weight-medium">
-        {{ profile.pseudo }}
-      </div>
-
-      <v-btn
-        v-if="!user"
-        variant="elevated"
-        color="white"
-        class="text-purple"
-        @click="authDialog = true"
-      >
-        Connexion
-      </v-btn>
-      <v-btn v-else variant="tonal" color="white" @click="logout">
-        Déconnexion
-      </v-btn>
-    </v-app-bar>
+    <AppHeader
+      :user="user"
+      :profile="profile"
+      :searchQuery="searchQuery"
+      :searchLoading="searchLoading"
+      :searchError="searchError"
+      :searchedOnce="searchedOnce"
+      :resultsCount="searchResults.length"
+      @update:searchQuery="searchQuery = $event"
+      @doSearch="doSearch"
+      @openAuth="authDialog = true"
+      @logout="logout"
+    />
     <v-main>
       <v-container fluid class="py-6">
         <v-row>
-          <v-col cols="12" md="3">
-            <SearchPanel
-              v-model:query="searchQuery"
+          <!-- Résultats : UNIQUEMENT quand showResults = true -->
+          <v-col v-if="showResults" cols="12" md="3">
+            <SearchResultsPanel
               :results="searchResults"
-              :loading="searchLoading"
-              :error="searchError"
-              :searchedOnce="searchedOnce"
-              @search="doSearch"
               @preview="previewResult"
               @add="(r) => requireAuth(() => addVideo(r))"
             />
           </v-col>
 
-          <v-col cols="12" md="6">
+          <!-- Player : grand si pas de résultats -->
+          <v-col cols="12" :md="showResults ? 6 : 9">
             <VideoPlayer :video="current" />
           </v-col>
 
+          <!-- Bibliothèque : toujours à droite -->
           <v-col cols="12" md="3">
             <LibraryPanel
               :videos="videos"
               :user="user"
-              @select="(v) => (current = v)"
+              @select="
+                (v) => {
+                  current = v;
+                  showResults = false;
+                }
+              "
               @delete="(v) => deleteVideo(v)"
             />
           </v-col>
@@ -119,12 +105,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { supabase } from "./lib/supabase";
-import SearchPanel from "./components/SearchPanel.vue";
+import SearchResultsPanel from "./components/SearchResultsPanel.vue";
 import VideoPlayer from "./components/VideoPlayer.vue";
 import LibraryPanel from "./components/LibraryPanel.vue";
-import logoUrl from './assets/logo.png'
+import AppHeader from "./components/AppHeader.vue";
+
+import logoUrl from "./assets/logo.png";
+import logo1 from "./assets/logo1.png";
+import logo2 from "./assets/logo2.png";
+
+const showResults = ref(false);
+const lastExecutedQuery = ref("");
+
+// optionnel : si tu veux fermer les résultats quand query est vide
+const hasQuery = computed(() => (searchQuery || "").trim().length > 0);
+
 const user = ref(null);
 const profile = ref(null);
 
@@ -210,13 +207,30 @@ async function loadVideos() {
 }
 
 async function doSearch() {
+  const q = (searchQuery.value ?? "").trim();
+  if (!q) return;
+
+  // normalisation : "  Bob   l'éponge " == "bob l'éponge"
+  const normalized = q.toLowerCase().replace(/\s+/g, " ");
+
+  // ✅ même requête => on n'appelle pas l'edge function, on ouvre juste le panneau
+  if (normalized === lastExecutedQuery.value) {
+    showResults.value = true;
+    return;
+  }
+
+  // nouvelle requête => on mémorise + on lance la recherche
+  lastExecutedQuery.value = normalized;
+
+  showResults.value = true;
+
   searchError.value = "";
   searchResults.value = [];
   searchedOnce.value = true;
   searchLoading.value = true;
 
   const { data, error } = await supabase.functions.invoke("youtube-search", {
-    body: { q: searchQuery.value },
+    body: { q },
   });
 
   searchLoading.value = false;
@@ -236,6 +250,8 @@ async function doSearch() {
 }
 
 function previewResult(r) {
+  showResults.value = false;
+
   // preview immédiat dans le lecteur sans l’ajouter
   current.value = {
     id: "preview",
